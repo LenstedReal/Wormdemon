@@ -7,114 +7,89 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
 import asyncio
-
-# Native Async LLM Libraries
-import anthropic
-from anthropic import APIError
 import aiohttp
-
-# DNS Optimization imports
 import aiodns
-import socket
 
-# --- DNS Resolver Configuration (Cloudflare + NextDNS) ---
+# --- DNS Resolver Configuration (Cloudflare + Google DNS) ---
 class OptimizedDNSResolver:
-    """Custom DNS resolver combining Cloudflare and NextDNS for better performance"""
+    """Cloudflare ve Google DNS ile optimize edilmiş DNS resolver"""
     
     def __init__(self):
-        # Cloudflare DNS: 1.1.1.1, 1.0.0.1
-        # NextDNS can be configured with your custom endpoint
         self.dns_servers = [
-            '1.1.1.1',  # Cloudflare primary
-            '1.0.0.1',  # Cloudflare secondary
-            '8.8.8.8',  # Google DNS as fallback
+            '1.1.1.1',      # Cloudflare primary
+            '1.0.0.1',      # Cloudflare secondary
+            '8.8.8.8',      # Google DNS primary
+            '8.8.4.4',      # Google DNS secondary
         ]
         self.resolver = None
         
     async def init_resolver(self):
-        """Initialize aiodns resolver with custom nameservers"""
+        """DNS resolver'ı başlat"""
         self.resolver = aiodns.DNSResolver(nameservers=self.dns_servers)
-        logger.info(f"🌐 DNS Resolver initialized with: {', '.join(self.dns_servers)}")
+        logger.info(f"🌐 DNS Optimize Edildi: {', '.join(self.dns_servers)}")
     
     async def resolve(self, hostname: str) -> str:
-        """Resolve hostname to IP using optimized DNS"""
+        """DNS çözümle"""
         try:
             if not self.resolver:
                 await self.init_resolver()
-            
             result = await self.resolver.query(hostname, 'A')
             ip = result[0].host
-            logger.info(f"✅ DNS Resolved: {hostname} -> {ip}")
+            logger.info(f"✅ DNS: {hostname} -> {ip}")
             return ip
         except Exception as e:
-            logger.warning(f"⚠️ DNS resolution failed for {hostname}: {e}, using system resolver")
-            # Fallback to system resolver
+            logger.warning(f"⚠️ DNS hata: {hostname}: {e}")
             return hostname
 
-# Global DNS resolver instance
 dns_resolver = OptimizedDNSResolver()
 
-# --- Başlangıç ve Konfigürasyon ---
+# --- Konfigürasyon ---
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# Logging Konfigürasyonu
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Global MongoDB Bağlantı Nesneleri
+# MongoDB
 client: Optional[AsyncIOMotorClient] = None
 db = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Kritik ortam değişkenlerini kontrol eder ve MongoDB bağlantısını yönetir."""
+    """Uygulama başlangıç ve kapanış"""
     global client, db
     
-    # Initialize DNS resolver on startup
     await dns_resolver.init_resolver()
     
-    # 1. Ortam Değişkeni Kontrolleri
     try:
-        mongo_url = os.environ['MONGO_URL']
-        db_name = os.environ['DB_NAME']
-            
-    except KeyError as e:
-        logger.error(f"🔴 KRİTİK HATA: Ortam değişkeni eksik: {e}. Uygulama başlamıyor.")
-        raise RuntimeError(f"Gerekli ortam değişkeni eksik: {e}")
-
-    # 2. MongoDB Bağlantısı
-    try:
+        mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+        db_name = os.environ.get('DB_NAME', 'wormdemon_db')
+        
         client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=5000)
         db = client[db_name]
-        await db.command('ping') 
-        logger.info(f"🟢 MongoDB bağlantısı başarılı: {db_name}")
+        await db.command('ping')
+        logger.info(f"🟢 MongoDB Bağlandı: {db_name}")
     except Exception as e:
-        logger.error(f"🔴 MongoDB bağlantısı başarısız oldu: {e}")
+        logger.warning(f"🟡 MongoDB yok, devam ediliyor: {e}")
         client = None
         db = None
-        logger.warning("🟡 Uygulama MongoDB olmadan başlatıldı. Kalıcılık devre dışı.")
     
     yield
     
-    # Kapanış: MongoDB bağlantısını kapat
     if client:
         client.close()
-        logger.info("🔌 MongoDB bağlantısı kapatıldı.")
+        logger.info("🔌 MongoDB Kapandı")
 
 
-# Ana uygulamayı yaşam döngüsü yöneticisi ile oluştur
-app = FastAPI(lifespan=lifespan, title="x-69 AI Backend")
-
-# Router (Vercel uyumluluğu için prefix'siz)
+app = FastAPI(lifespan=lifespan, title="x-69 Wormdemon AI")
 api_router = APIRouter(prefix="/api")
 
 # --- Pydantic Modelleri ---
@@ -130,7 +105,6 @@ class ChatResponse(BaseModel):
     reply: str
     transaction_id: Optional[str] = None
 
-# MongoDB/Status modelleri...
 class StatusCheck(BaseModel):
     model_config = ConfigDict(extra="ignore", from_attributes=True)
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -141,10 +115,10 @@ class StatusCheckCreate(BaseModel):
     client_name: str
 
 
-# --- LLM Yardımcı Fonksiyonlar ---
+# --- LLM Helper Functions ---
 
 def format_messages_for_llm(messages: List[Message]) -> tuple[Optional[str], list[dict]]:
-    """Sistem mesajını ayırır ve LLM'ler için geçmişi hazırlar."""
+    """Mesajları LLM formatına çevir"""
     llm_messages = []
     system_prompt = None
 
@@ -154,58 +128,30 @@ def format_messages_for_llm(messages: List[Message]) -> tuple[Optional[str], lis
         else:
             llm_messages.append({"role": msg.role, "content": msg.content})
 
-    # Claude/OpenRouter için ilk mesajın 'user' olması zorunluluğu için basit kontrol
     if llm_messages and llm_messages[0]["role"] != "user":
          llm_messages.insert(0, {"role": "user", "content": "Conversation started."})
 
     return system_prompt, llm_messages
 
 
-async def call_claude_sdk(api_key: str, messages: List[Message]) -> str:
-    """Claude 3.5 Sonnet'i native Anthropic SDK kullanarak çağırır."""
+async def call_groq_api(api_key: str, messages: List[Message]) -> str:
+    """
+    Groq API - ÜCRETSİZ ve ÇOK HIZLI (Llama 3.1 70B)
+    İnferens hızı: ~300 token/saniye (Claude'un 10 katı hızlı!)
+    Limit: 30 istek/dakika (yeterli)
+    """
+    system_prompt, groq_messages = format_messages_for_llm(messages)
     
-    system_prompt, claude_messages = format_messages_for_llm(messages)
-    
-    if not claude_messages:
-        raise ValueError("Claude için gönderilecek mesaj içeriği boş.")
-    
-    try:
-        # DNS optimized connection için custom connector kullanıyoruz
-        client = anthropic.AsyncAnthropic(api_key=api_key)
+    if not groq_messages:
+        raise ValueError("Mesaj içeriği boş")
         
-        response = await client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            messages=claude_messages,
-            system=system_prompt if system_prompt else "You are x-69, a powerful and analytical AI.",
-            max_tokens=2048,
-            temperature=0.7
-        )
-        logger.info("✅ Claude 3.5 Sonnet başarılı.")
-        return f"🔥 [Claude 3.5 Sonnet]: {response.content[0].text}"
-        
-    except Exception as e:
-        logger.error(f"❌ Anthropic Claude Hatası: {e}")
-        raise
-
-
-async def call_openrouter_api(api_key: str, messages: List[Message]) -> str:
-    """Llama 3.1 70B'yi aiohttp ile DNS optimization kullanarak OpenRouter üzerinden çağırır."""
-    
-    system_prompt, openrouter_messages = format_messages_for_llm(messages)
-    
-    if not openrouter_messages:
-        raise ValueError("OpenRouter için gönderilecek mesaj içeriği boş.")
-        
-    # OpenRouter/Llama için sistem mesajını en üste ekle
     if system_prompt:
-        openrouter_messages.insert(0, {"role": "system", "content": system_prompt})
+        groq_messages.insert(0, {"role": "system", "content": system_prompt})
         
     try:
-        llama_model = "meta-llama/llama-3.1-70b-instruct" 
-        
         # DNS-optimized connector
         connector = aiohttp.TCPConnector(
-            ttl_dns_cache=300,  # DNS cache for 5 minutes
+            ttl_dns_cache=300,
             limit=100,
             limit_per_host=30,
             enable_cleanup_closed=True,
@@ -214,39 +160,150 @@ async def call_openrouter_api(api_key: str, messages: List[Message]) -> str:
         
         async with aiohttp.ClientSession(connector=connector) as session:
             async with session.post(
-                "https://openrouter.ai/api/v1/chat/completions",
+                "https://api.groq.com/openai/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://wormdemon.vercel.app",
-                    "X-Title": "x-69 Wormdemon"
+                    "Content-Type": "application/json"
                 },
                 json={
-                    "model": llama_model,
-                    "messages": openrouter_messages,
-                    "temperature": 1.2
+                    "model": "llama-3.1-70b-versatile",  # Ücretsiz, çok hızlı
+                    "messages": groq_messages,
+                    "temperature": 0.8,
+                    "max_tokens": 2048
                 },
-                timeout=aiohttp.ClientTimeout(total=45)
+                timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
                 
                 if response.status != 200:
-                    data = await response.json()
-                    raise RuntimeError(f"OpenRouter HTTP {response.status}: {data.get('error', 'Unknown API Error')}")
+                    error_text = await response.text()
+                    raise RuntimeError(f"Groq API Hata {response.status}: {error_text}")
                 
                 data = await response.json()
-                llama_text = data['choices'][0]['message']['content']
-                logger.info("✅ Llama 3.1 70B başarılı.")
-                return f"🐬 [Llama 3.1 70B]: {llama_text}"
+                groq_text = data['choices'][0]['message']['content']
+                logger.info("✅ Groq Llama 3.1 70B başarılı")
+                return f"🔥 {groq_text}"
                 
     except Exception as e:
-        logger.error(f"❌ OpenRouter/Llama Hatası: {e}")
+        logger.error(f"❌ Groq Hatası: {e}")
+        raise
+
+
+async def call_together_api(api_key: str, messages: List[Message]) -> str:
+    """
+    Together.ai API - ÜCRETSİZ $25 credit ile başlar
+    Mistral 7B veya Llama modelleri
+    """
+    system_prompt, together_messages = format_messages_for_llm(messages)
+    
+    if not together_messages:
+        raise ValueError("Mesaj içeriği boş")
+        
+    if system_prompt:
+        together_messages.insert(0, {"role": "system", "content": system_prompt})
+        
+    try:
+        connector = aiohttp.TCPConnector(
+            ttl_dns_cache=300,
+            limit=100,
+            limit_per_host=30,
+            enable_cleanup_closed=True,
+            force_close=False,
+        )
+        
+        async with aiohttp.ClientSession(connector=connector) as session:
+            async with session.post(
+                "https://api.together.xyz/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "mistralai/Mistral-7B-Instruct-v0.2",  # Hızlı ve güçlü
+                    "messages": together_messages,
+                    "temperature": 1.0,
+                    "max_tokens": 2048
+                },
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise RuntimeError(f"Together.ai Hata {response.status}: {error_text}")
+                
+                data = await response.json()
+                together_text = data['choices'][0]['message']['content']
+                logger.info("✅ Together.ai Mistral başarılı")
+                return f"🐺 {together_text}"
+                
+    except Exception as e:
+        logger.error(f"❌ Together.ai Hatası: {e}")
+        raise
+
+
+async def call_huggingface_api(api_key: str, messages: List[Message]) -> str:
+    """
+    Hugging Face Inference API - ÜCRETSİZ
+    Mistral, Zephyr gibi modeller
+    """
+    system_prompt, hf_messages = format_messages_for_llm(messages)
+    
+    # Hugging Face için prompt formatı
+    prompt = ""
+    if system_prompt:
+        prompt += f"<|system|>\n{system_prompt}\n"
+    
+    for msg in hf_messages:
+        if msg["role"] == "user":
+            prompt += f"<|user|>\n{msg['content']}\n"
+        elif msg["role"] == "assistant":
+            prompt += f"<|assistant|>\n{msg['content']}\n"
+    
+    prompt += "<|assistant|>\n"
+        
+    try:
+        connector = aiohttp.TCPConnector(
+            ttl_dns_cache=300,
+            limit=100,
+            enable_cleanup_closed=True,
+            force_close=False,
+        )
+        
+        async with aiohttp.ClientSession(connector=connector) as session:
+            async with session.post(
+                "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "inputs": prompt,
+                    "parameters": {
+                        "max_new_tokens": 1024,
+                        "temperature": 0.9,
+                        "return_full_text": False
+                    }
+                },
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise RuntimeError(f"Hugging Face Hata {response.status}: {error_text}")
+                
+                data = await response.json()
+                hf_text = data[0]['generated_text']
+                logger.info("✅ Hugging Face Mistral başarılı")
+                return f"🤗 {hf_text}"
+                
+    except Exception as e:
+        logger.error(f"❌ Hugging Face Hatası: {e}")
         raise
 
 
 async def save_chat_to_db(messages: List[Message], response: str) -> Optional[str]:
-    """Chat geçmişini MongoDB'ye kaydeder ve transaction_id döndürür."""
+    """Chat'i MongoDB'ye kaydet"""
     if db is None:
-        logger.warning("MongoDB bağlantısı mevcut değil, chat kaydı atlanıyor.")
+        logger.warning("MongoDB yok, chat kaydedilmiyor")
         return None
         
     try:
@@ -258,118 +315,172 @@ async def save_chat_to_db(messages: List[Message], response: str) -> Optional[st
             "response": response
         }
         await db.chat_history.insert_one(chat_doc)
-        logger.info(f"✅ Chat MongoDB'ye kaydedildi. ID: {transaction_id}")
+        logger.info(f"✅ Chat kaydedildi: {transaction_id}")
         return transaction_id
     except Exception as e:
         logger.error(f"❌ DB kaydetme hatası: {e}")
         return None
 
 
-# --- YÖNLENDİRME (ROUTING) ---
+# --- API ENDPOINTS ---
 
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World. x-69 server is operational. 🔥"}
+    return {"message": "x-69 Wormdemon aktif! 🔥", "status": "ready"}
 
 @api_router.get("/health")
 async def health_check():
-    """Uygulama sağlık kontrolü endpoint'i."""
+    """Sağlık kontrolü"""
     db_status = "Connected" if db is not None else "Disconnected"
-    dns_status = "Optimized (Cloudflare + NextDNS)" if dns_resolver.resolver else "System Default"
+    dns_status = "Optimized (Cloudflare + Google)" if dns_resolver.resolver else "System Default"
+    
+    # API key kontrolü
+    groq_key = os.getenv('GROQ_API_KEY')
+    together_key = os.getenv('TOGETHER_API_KEY')
+    hf_key = os.getenv('HUGGINGFACE_API_KEY')
+    
+    api_status = []
+    if groq_key and groq_key != "your_groq_api_key_here":
+        api_status.append("Groq ✅")
+    if together_key and together_key != "your_together_api_key_here":
+        api_status.append("Together.ai ✅")
+    if hf_key and hf_key != "your_huggingface_api_key_here":
+        api_status.append("Hugging Face ✅")
+    
+    if not api_status:
+        api_status.append("⚠️ API keyleri eksik!")
+    
     return {
-        "status": "ok", 
-        "message": "x-69 AI is active and responding. 🔥", 
+        "status": "ok",
+        "message": "x-69 AI hazır ve bekliyor! 🔥😈",
         "db_status": db_status,
-        "dns_optimization": dns_status
+        "dns_optimization": dns_status,
+        "available_apis": api_status
     }
 
 
 @api_router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """Paralel Claude 3.5 Sonnet ve Llama 3.1 çağrısı yapar."""
+    """
+    ÜÇ FARKLI ÜCRETSİZ AI PARALEL ÇALIŞIR:
+    1. Groq (Llama 3.1 70B) - En hızlı
+    2. Together.ai (Mistral 7B) - Dengeli
+    3. Hugging Face (Mistral 7B) - Yedek
+    """
     transaction_id = None
     try:
-        logger.info(f"🔥 Chat isteği alındı: {len(request.messages)} mesaj.")
+        logger.info(f"🔥 Chat isteği: {len(request.messages)} mesaj")
         
-        claude_key = os.getenv('ANTHROPIC_API_KEY')
-        openrouter_key = os.getenv('OPENROUTER_API_KEY')
+        groq_key = os.getenv('GROQ_API_KEY')
+        together_key = os.getenv('TOGETHER_API_KEY')
+        hf_key = os.getenv('HUGGINGFACE_API_KEY')
         
-        if not claude_key or not openrouter_key:
+        # En az bir API key olmalı
+        if not any([groq_key, together_key, hf_key]):
             raise HTTPException(
-                status_code=500, 
-                detail="LLM API Key'leri eksik. Lütfen backend/.env dosyasına ANTHROPIC_API_KEY ve OPENROUTER_API_KEY ekleyin."
+                status_code=500,
+                detail="API keyleri eksik! /app/backend/.env dosyasına GROQ_API_KEY, TOGETHER_API_KEY veya HUGGINGFACE_API_KEY ekleyin."
             )
         
-        # Paralel görevleri başlat
-        claude_task = call_claude_sdk(claude_key, request.messages)
-        llama_task = call_openrouter_api(openrouter_key, request.messages)
+        tasks = []
         
-        # Eş zamanlı çalıştır ve hataları topla (Zaman aşımı 50 saniye)
-        claude_response, llama_response = await asyncio.wait_for(
-            asyncio.gather(claude_task, llama_task, return_exceptions=True),
-            timeout=50.0 
+        # Groq (en hızlı, öncelikli)
+        if groq_key and groq_key != "your_groq_api_key_here":
+            tasks.append(("Groq", call_groq_api(groq_key, request.messages)))
+        
+        # Together.ai
+        if together_key and together_key != "your_together_api_key_here":
+            tasks.append(("Together", call_together_api(together_key, request.messages)))
+        
+        # Hugging Face
+        if hf_key and hf_key != "your_huggingface_api_key_here":
+            tasks.append(("HuggingFace", call_huggingface_api(hf_key, request.messages)))
+        
+        if not tasks:
+            raise HTTPException(
+                status_code=500,
+                detail="Geçerli API key yok! Lütfen .env dosyasını kontrol edin."
+            )
+        
+        # Paralel çalıştır
+        results = await asyncio.gather(
+            *[task for _, task in tasks],
+            return_exceptions=True
         )
         
-        # Yanıtları işleme ve birleştirme
-        if isinstance(claude_response, Exception):
-            claude_text = f"🔥 [Claude 3.5 Sonnet HATA]: {type(claude_response).__name__}: {str(claude_response)}"
-            logger.error(f"Claude Hata: {claude_response}")
-        else:
-            claude_text = claude_response
-            
-        if isinstance(llama_response, Exception):
-            llama_text = f"🐬 [Llama 3.1 70B HATA]: {type(llama_response).__name__}: {str(llama_response)}"
-            logger.error(f"Llama Hata: {llama_response}")
-        else:
-            llama_text = llama_response
+        # Sonuçları işle
+        combined_responses = []
+        for i, (name, _) in enumerate(tasks):
+            result = results[i]
+            if isinstance(result, Exception):
+                logger.error(f"❌ {name} Hatası: {result}")
+                combined_responses.append(f"[{name} servisi şu an çalışmıyor]")
+            else:
+                combined_responses.append(result)
         
-        # İki AI'ı birleştir
-        combined_reply = f"{claude_text}\n\n{llama_text}"
+        # Tüm servisler başarısız olduysa hata ver
+        if all(isinstance(r, str) and "servisi şu an çalışmıyor" in r for r in combined_responses):
+            raise HTTPException(
+                status_code=503,
+                detail="Tüm AI servisleri şu an yanıt vermiyor. Lütfen birkaç saniye sonra tekrar deneyin."
+            )
+        
+        # En iyi yanıtı seç (ilk başarılı olan)
+        best_response = None
+        for resp in combined_responses:
+            if isinstance(resp, str) and "servisi şu an çalışmıyor" not in resp:
+                best_response = resp
+                break
+        
+        if not best_response:
+            best_response = combined_responses[0]
+        
+        combined_reply = best_response
         
         # MongoDB'ye kaydet
         transaction_id = await save_chat_to_db(request.messages, combined_reply)
         
-        logger.info("✅ Birleşik yanıt başarıyla oluşturuldu.")
+        logger.info("✅ AI yanıtı hazır")
         return ChatResponse(reply=combined_reply, transaction_id=transaction_id)
         
     except asyncio.TimeoutError:
-        logger.error("❌ LLM Çağrısı Zaman Aşımına Uğradı (50s limit).")
-        raise HTTPException(status_code=504, detail="LLM yanıtı zaman aşımına uğradı.")
+        logger.error("❌ Timeout")
+        raise HTTPException(status_code=504, detail="AI yanıtı zaman aşımına uğradı")
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Genel Chat Endpoint Hatası: {e}")
+        logger.error(f"❌ Chat Hatası: {e}")
         raise HTTPException(status_code=500, detail=f"Sunucu Hatası: {str(e)}")
 
 
-# Status Check Endpoints (Mevcut yapıyı korur)
+# Status endpoints
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
     if db is None:
-        raise HTTPException(status_code=503, detail="Veritabanı bağlantısı hazır değil.")
+        raise HTTPException(status_code=503, detail="Veritabanı bağlantısı yok")
     try:
         status_obj = StatusCheck(**input.model_dump())
         doc = status_obj.model_dump(mode='json')
         await db.status_checks.insert_one(doc)
         return status_obj
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Durum kontrolü hatası: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Hata: {str(e)}")
 
 @api_router.get("/status", response_model=List[StatusCheck])
 async def get_status_checks():
     if db is None:
-        raise HTTPException(status_code=503, detail="Veritabanı bağlantısı hazır değil.")
+        raise HTTPException(status_code=503, detail="Veritabanı bağlantısı yok")
     try:
         status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
         return status_checks
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Veri alma hatası: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Hata: {str(e)}")
 
 
-# Ana uygulamaya router'ı dahil et
+# Router'ı app'e ekle
 app.include_router(api_router)
 
-# CORS Middleware (Son Konfigürasyon)
+# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
