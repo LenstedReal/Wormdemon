@@ -1,0 +1,4 @@
+aiodns==3.5.0
+aiohttp==3.13.2
+anthropic==0.75.0
+pycares==4.11.0
