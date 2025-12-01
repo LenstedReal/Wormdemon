@@ -345,7 +345,7 @@ async def chat(request: ChatRequest):
 # Status Check Endpoints (Mevcut yapıyı korur)
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
-    if not db:
+    if db is None:
         raise HTTPException(status_code=503, detail="Veritabanı bağlantısı hazır değil.")
     try:
         status_obj = StatusCheck(**input.model_dump())
