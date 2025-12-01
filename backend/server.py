@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 # Global MongoDB Bağlantı Nesneleri
 client: Optional[AsyncIOMotorClient] = None
-db: Optional[AsyncIOMotorClient.database] = None
+db = None
 
 
 @asynccontextmanager
