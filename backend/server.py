@@ -222,7 +222,7 @@ async def health():
         "dns": dns_status,
         "ai_system": "Local Smart AI (No external dependencies)",
         "independent": True,
-        "no_emergent": True
+        "independent": True
     }
 
 
