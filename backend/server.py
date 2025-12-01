@@ -245,7 +245,7 @@ async def call_openrouter_api(api_key: str, messages: List[Message]) -> str:
 
 async def save_chat_to_db(messages: List[Message], response: str) -> Optional[str]:
     """Chat geçmişini MongoDB'ye kaydeder ve transaction_id döndürür."""
-    if not db:
+    if db is None:
         logger.warning("MongoDB bağlantısı mevcut değil, chat kaydı atlanıyor.")
         return None
         
