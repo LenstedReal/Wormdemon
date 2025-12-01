@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://wormdemon.vercel.app';
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 function AIChat() {
   const [message, setMessage] = useState('');
