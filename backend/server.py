@@ -357,7 +357,7 @@ async def create_status_check(input: StatusCheckCreate):
 
 @api_router.get("/status", response_model=List[StatusCheck])
 async def get_status_checks():
-    if not db:
+    if db is None:
         raise HTTPException(status_code=503, detail="Veritabanı bağlantısı hazır değil.")
     try:
         status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
