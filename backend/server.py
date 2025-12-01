@@ -274,7 +274,7 @@ async def root():
 @api_router.get("/health")
 async def health_check():
     """Uygulama sağlık kontrolü endpoint'i."""
-    db_status = "Connected" if db else "Disconnected"
+    db_status = "Connected" if db is not None else "Disconnected"
     dns_status = "Optimized (Cloudflare + NextDNS)" if dns_resolver.resolver else "System Default"
     return {
         "status": "ok", 
