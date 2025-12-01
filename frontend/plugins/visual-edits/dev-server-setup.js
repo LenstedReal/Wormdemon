@@ -468,8 +468,8 @@ function setupDevServer(config) {
           const timestamp = Date.now();
           try {
             // Use -c flag for per-invocation git config to avoid modifying any config
-            execSync(`git -c user.name="visual-edit" -c user.email="support@emergent.sh" add "${targetFile}"`);
-            execSync(`git -c user.name="visual-edit" -c user.email="support@emergent.sh" commit -m "visual_edit_${timestamp}"`);
+            execSync(`git -c user.name="visual-edit" -c user.email="edit@wormdemon.local" add "${targetFile}"`);
+            execSync(`git -c user.name="visual-edit" -c user.email="edit@wormdemon.local" commit -m "visual_edit_${timestamp}"`);
           } catch (gitError) {
             console.error(`Git commit failed: ${gitError.message}`);
             // Continue even if git fails - file write succeeded
