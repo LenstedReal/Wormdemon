@@ -57,20 +57,20 @@ Teknik sorulara detaylı, kod örnekli, adım adım cevap ver. Güvenlik konular
       type: 'loading' 
     }]);
 
-    // Timeout için timer ayarla (25 saniye - daha uzun)
+    // Timeout için timer ayarla (10 saniye - hızlı feedback)
     const timeoutId = setTimeout(() => {
       setLoading(false);
       setChat(prev => prev.slice(0, -1).concat({ 
-        text: 'Bağlantı sorunu patron! Tekrar dene! 😈', 
+        text: 'Bağlantı sorunu patron! API keyleri kontrol et! 😈', 
         type: 'error' 
       }));
-    }, 25000);
+    }, 10000);
 
     try {
       const response = await axios.post(`${BACKEND_URL}/api/chat`, {
         messages: newHistory
       }, {
-        timeout: 24000, // 24 saniye timeout
+        timeout: 55000, // 55 saniye timeout (backend 50sn + buffer)
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
