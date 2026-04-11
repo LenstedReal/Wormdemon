@@ -302,10 +302,13 @@ async def root():
 
 @api_router.get("/health")
 async def health():
+    groq_key = os.environ.get('GROQ_API_KEY', '')
+    serp_key = os.environ.get('SERPAPI_KEY', '')
     return {
         "status": "ok",
         "db": "Connected" if db is not None else "Disconnected",
-        "ai": "Groq + SerpAPI",
+        "groq": f"{groq_key[:4]}...{groq_key[-4:]}" if len(groq_key) > 8 else "MISSING",
+        "serp": f"{serp_key[:4]}...{serp_key[-4:]}" if len(serp_key) > 8 else "MISSING",
         "independent": True
     }
 
