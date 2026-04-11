@@ -18,6 +18,14 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+try:
+    import dns.resolver
+    resolver = dns.resolver.Resolver()
+    resolver.nameservers = ['8.8.8.8', '1.1.1.1']
+    dns.resolver.default_resolver = resolver
+except Exception:
+    pass
+
 limiter = Limiter(key_func=get_remote_address)
 
 ROOT_DIR = Path(__file__).parent
