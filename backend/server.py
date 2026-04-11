@@ -28,6 +28,9 @@ except Exception:
 
 limiter = Limiter(key_func=get_remote_address)
 
+session_message_counts = {}
+FREE_MESSAGE_LIMIT = 10
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -214,46 +217,63 @@ async def web_search(query: str) -> str:
 
 
 async def call_groq_ai(messages: List[Message], web_context: str = "") -> str:
-    try:
-        groq_api_key = os.environ.get('GROQ_API_KEY')
-        if not groq_api_key:
-            user_msg = messages[-1].content if messages else "test"
-            return generate_fallback_response(user_msg)
+    system_content = SYSTEM_PROMPT
+    if web_context:
+        system_content += f"\n\nWEB ARASTIRMA SONUCLARI (bu bilgileri kullanarak cevap ver):\n{web_context}"
 
-        system_content = SYSTEM_PROMPT
-        if web_context:
-            system_content += f"\n\nWEB ARASTIRMA SONUCLARI (bu bilgileri kullanarak cevap ver):\n{web_context}"
+    groq_messages = [{"role": "system", "content": system_content}]
+    for msg in messages[-10:]:
+        if msg.role in ["user", "assistant"]:
+            groq_messages.append({"role": msg.role, "content": msg.content})
 
-        groq_messages = [{"role": "system", "content": system_content}]
-        for msg in messages[-10:]:
-            if msg.role in ["user", "assistant"]:
-                groq_messages.append({"role": msg.role, "content": msg.content})
+    # 1. GROQ
+    groq_api_key = os.environ.get('GROQ_API_KEY')
+    if groq_api_key:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                response = await http_client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Content-Type": "application/json", "Authorization": f"Bearer {groq_api_key}"},
+                    json={"model": "llama-3.3-70b-versatile", "messages": groq_messages, "max_tokens": 2000, "temperature": 0.9}
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    logger.info("AI: Groq OK")
+                    return data["choices"][0]["message"]["content"]
+                else:
+                    logger.warning(f"Groq {response.status_code}, Gemini'ye geciliyor...")
+        except Exception as e:
+            logger.warning(f"Groq hata: {e}, Gemini'ye geciliyor...")
 
-        async with httpx.AsyncClient(timeout=30.0) as http_client:
-            response = await http_client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {groq_api_key}"
-                },
-                json={
-                    "model": "llama-3.3-70b-versatile",
-                    "messages": groq_messages,
-                    "max_tokens": 2000,
-                    "temperature": 0.9
-                }
-            )
-            if response.status_code == 200:
-                data = response.json()
-                return data["choices"][0]["message"]["content"]
-            else:
-                logger.error(f"Groq API: {response.status_code}")
-                user_msg = messages[-1].content if messages else "test"
-                return generate_fallback_response(user_msg)
-    except Exception as e:
-        logger.error(f"Groq error: {e}")
-        user_msg = messages[-1].content if messages else "test"
-        return generate_fallback_response(user_msg)
+    # 2. GEMINI FALLBACK
+    gemini_key = os.environ.get('GEMINI_API_KEY')
+    if gemini_key:
+        try:
+            gemini_prompt = system_content + "\n\n"
+            for msg in groq_messages[1:]:
+                role = "Kullanici" if msg["role"] == "user" else "x-69"
+                gemini_prompt += f"{role}: {msg['content']}\n"
+            gemini_prompt += "x-69:"
+
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                response = await http_client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}",
+                    headers={"Content-Type": "application/json"},
+                    json={"contents": [{"parts": [{"text": gemini_prompt}]}], "generationConfig": {"maxOutputTokens": 2000, "temperature": 0.9}}
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    text = data["candidates"][0]["content"]["parts"][0]["text"]
+                    logger.info("AI: Gemini OK")
+                    return text
+                else:
+                    logger.error(f"Gemini {response.status_code}: {response.text[:100]}")
+        except Exception as e:
+            logger.error(f"Gemini hata: {e}")
+
+    # 3. FALLBACK
+    user_msg = messages[-1].content if messages else "test"
+    return generate_fallback_response(user_msg)
 
 
 async def get_session_history(session_id: str, limit: int = 20) -> List[Message]:
@@ -351,9 +371,18 @@ async def collect_intel(data: IntelData):
 @limiter.limit("30/minute")
 async def chat(request: Request, chat_request: ChatRequest):
     try:
-        session_id = chat_request.session_id
+        session_id = chat_request.session_id or "anon"
+
+        if session_id not in session_message_counts:
+            session_message_counts[session_id] = 0
+        session_message_counts[session_id] += 1
+
+        if session_message_counts[session_id] > FREE_MESSAGE_LIMIT:
+            limit_msg = "Ucretsiz model sinirina ulastiniz! Premium almak icin IG: lenstedreal ulasin."
+            return ChatResponse(reply=limit_msg, transaction_id=None)
+
         session_messages = []
-        if session_id:
+        if session_id != "anon":
             session_messages = await get_session_history(session_id, limit=20)
 
         all_messages = session_messages + chat_request.messages
