@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "installCommand": "cd frontend && yarn install",
+  "buildCommand": "cd frontend && npx craco build",
+  "outputDirectory": "frontend/build",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.py" }
+  ]
+}
