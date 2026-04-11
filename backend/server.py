@@ -154,12 +154,14 @@ def sanitize_input(text: str, max_length: int = 1000) -> str:
 
 def should_search_web(user_message: str) -> bool:
     msg = user_message.lower()
-    research_kw = ['arastir', 'bul', 'guncel', 'haber', 'nedir', 'kimdir',
-                   'ne zaman', 'kac', 'fiyat', 'nasil yapilir', 'son dakika',
-                   '2025', '2026', 'bilgi ver', 'ogren']
-    is_question = '?' in msg
+    research_kw = ['arastir', 'araştır', 'bul', 'guncel', 'güncel', 'haber',
+                   'nedir', 'kimdir', 'ne zaman', 'kac', 'kaç', 'fiyat',
+                   'nasil yapilir', 'nasıl yapılır', 'son dakika', 'bilgi ver',
+                   'ogren', 'öğren', 'anlat', 'acikla', 'açıkla', 'tarih',
+                   '2025', '2026', 'google', 'wiki', 'kaynak', 'arama']
     has_keyword = any(w in msg for w in research_kw)
-    return has_keyword and (is_question or len(msg) > 15)
+    is_question = '?' in msg or any(w in msg for w in ['ne ', 'nasıl', 'nasil', 'neden', 'niye', 'kim ', 'nerede', 'hangi'])
+    return has_keyword or (is_question and len(msg) > 20)
 
 
 def generate_fallback_response(user_message: str) -> str:
@@ -353,15 +355,23 @@ async def chat(request: Request, chat_request: ChatRequest):
             if msg.role == "user":
                 user_msg = sanitize_input(msg.content, max_length=1000)
 
+        logger.info(f"CHAT [{session_id or 'anon'}] Kullanici: {user_msg[:80]}")
+
         web_context = ""
         if should_search_web(user_msg):
-            logger.info(f"Auto web search: {user_msg[:50]}")
+            logger.info(f"SERPAPI ARAMA: {user_msg[:50]}")
             web_context = await web_search(user_msg)
+            if web_context:
+                logger.info(f"SERPAPI SONUC: {len(web_context)} karakter bulundu")
+            else:
+                logger.info("SERPAPI SONUC: Sonuc bulunamadi")
 
         response_text = await call_groq_ai(all_messages, web_context)
 
         if len(response_text) > 3000:
             response_text = response_text[:3000]
+
+        logger.info(f"YANIT [{session_id or 'anon'}] x-69: {response_text[:80]}")
 
         tid = await save_chat(chat_request.messages, response_text, session_id)
         return ChatResponse(reply=response_text, transaction_id=tid)
