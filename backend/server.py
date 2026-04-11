@@ -299,6 +299,23 @@ async def health():
         "independent": True
     }
 
+
+@api_router.get("/ip-info")
+async def get_ip_info(request: Request):
+    try:
+        client_ip = request.headers.get("x-forwarded-for", request.client.host)
+        if "," in client_ip:
+            client_ip = client_ip.split(",")[0].strip()
+        async with httpx.AsyncClient(timeout=10.0) as http_client:
+            resp = await http_client.get(f"http://ip-api.com/json/{client_ip}?fields=66846719")
+            if resp.status_code == 200:
+                return resp.json()
+        return {"query": client_ip, "city": "Unknown", "regionName": "Unknown", "country": "Unknown", "isp": "Unknown", "lat": 0, "lon": 0}
+    except Exception as e:
+        logger.error(f"IP info error: {e}")
+        return {"query": "Unknown", "city": "Unknown", "regionName": "Unknown", "country": "Unknown", "isp": "Unknown", "lat": 0, "lon": 0}
+
+
 @api_router.post("/intel/collect")
 async def collect_intel(data: IntelData):
     if db is not None:
