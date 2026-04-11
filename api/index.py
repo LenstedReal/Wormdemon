@@ -20,7 +20,7 @@ from slowapi.errors import RateLimitExceeded
 
 try:
     import dns.resolver
-    resolver = dns.resolver.Resolver()
+    resolver = dns.resolver.Resolver(configure=False)
     resolver.nameservers = ['8.8.8.8', '1.1.1.1']
     dns.resolver.default_resolver = resolver
 except Exception:
