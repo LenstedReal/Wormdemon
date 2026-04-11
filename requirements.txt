@@ -1,0 +1,7 @@
+fastapi
+motor
+pydantic
+slowapi
+httpx
+python-dotenv
+google-search-results
