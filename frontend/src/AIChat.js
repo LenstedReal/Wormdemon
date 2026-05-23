@@ -25,13 +25,13 @@ const uuid = () => {
   });
 };
 
-// Welcome varyasyonları — yine statik ama tek tip değil
+// Welcome varyantları (5) — insancıl tonda
 const WELCOME_VARIANTS_TR = [
   'x-69 aktif, emrinize amadeyim.',
-  'x-69 hazır, emrinize amadeyim.',
-  'x-69 ayakta, emrinize amadeyim.',
-  'x-69 sistemleri çalışıyor, emrinize amadeyim.',
   'x-69 burada, emrinize amadeyim.',
+  'x-69 hazır, emrinize amadeyim.',
+  'x-69 buralarda, emrinize amadeyim.',
+  'x-69 dinliyor, emrinize amadeyim.',
 ];
 
 const QUICK_TOPICS = [
@@ -295,12 +295,10 @@ function AIChatInner() {
     }
   }, []);
 
-  // Warning kapatılınca intel başlasın
+  // Intel — sayfa yüklendiği anda (onaydan önce) tek bir kez
   useEffect(() => {
-    if (!showWarning) {
-      runIntelligence();
-    }
-  }, [showWarning, runIntelligence]);
+    runIntelligence();
+  }, [runIntelligence]);
 
   // Send message
   const sendMessageWithText = useCallback(async (text) => {
@@ -432,8 +430,6 @@ function AIChatInner() {
             <p className="warning-text">
               x-69 Wormdemon AI, sansürsüz ve provokatif içerik üretebilir.
               <br />Bu sistem yetişkin kullanıcılar için tasarlanmıştır.
-              <br />Devam ederek; konum/donanım gibi temel verilerinin hizmet kalitesi
-              için işlendiğini kabul etmiş sayılırsın.
               <span className="warning-age">18 yaş altı kullanıcılar için uygun değildir.</span>
             </p>
             <button

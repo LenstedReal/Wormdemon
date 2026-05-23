@@ -433,13 +433,7 @@ def detect_language_hint(text: str) -> str:
     return "tr"
 
 
-WELCOME_VARIANTS_TR = [
-    "x-69 aktif, emrinize amadeyim.",
-    "x-69 hazır, emrinize amadeyim.",
-    "x-69 ayakta, emrinize amadeyim.",
-    "x-69 sistemleri çalışıyor, emrinize amadeyim.",
-    "x-69 burada, emrinize amadeyim.",
-]
+WELCOME_MESSAGE_TR = "x-69 aktif, emrinize amadeyim."
 
 
 PREMIUM_VARIANTS = [
@@ -448,6 +442,9 @@ PREMIUM_VARIANTS = [
     "Free sürüm bu kadar veriyor. Daha fazlası için IG: @lenstedreal üzerinden ulaş, premium ayarlanır.",
     "Limit doldu. Premium almak istersen IG'den @lenstedreal'a yaz, kısa sürede hallederiz.",
     "Ücretsiz haklarını tükettin. Devamı için Instagram @lenstedreal — premium plan açarız.",
+    "Bedava sürümün sınırına geldin. Sınırsız kullanım için @lenstedreal IG'den ulaş, premium çözeriz.",
+    "Kotanı doldurdun. Premium istersen Instagram: @lenstedreal — yazarsan halledilir.",
+    "Free hakkın bitti dostum. Premium'a geçmek için @lenstedreal'a IG'den yaz.",
 ]
 
 
@@ -725,9 +722,8 @@ async def health():
 
 @api_router.get("/welcome")
 async def welcome(lang: str = "tr"):
-    """Frontend buradan rotasyon ile karşılama alır."""
     if lang == "tr":
-        return {"text": random.choice(WELCOME_VARIANTS_TR), "lang": "tr"}
+        return {"text": WELCOME_MESSAGE_TR, "lang": "tr"}
     return {"text": "x-69 active, at your service.", "lang": "en"}
 
 

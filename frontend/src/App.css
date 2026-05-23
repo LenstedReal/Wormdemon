@@ -417,20 +417,20 @@ body {
 }
 
 /* ============================================
-   WARNING OVERLAY
+   WARNING OVERLAY — PREMIUM
    ============================================ */
 .warning-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.92);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: radial-gradient(circle at 50% 40%, rgba(40, 0, 0, 0.85), rgba(0, 0, 0, 0.96) 70%);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9999;
   padding: 20px;
-  animation: fade-in 0.3s ease;
+  animation: fade-in 0.45s ease;
 }
 
 @keyframes fade-in {
@@ -439,54 +439,105 @@ body {
 }
 
 .warning-box {
-  background: linear-gradient(160deg, #160606, #1f0a0a);
-  padding: 32px 28px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 30, 30, 0.55);
-  max-width: 520px;
+  position: relative;
+  background:
+    linear-gradient(160deg, rgba(28, 6, 6, 0.95), rgba(14, 2, 2, 0.98));
+  padding: 40px 32px 32px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 30, 30, 0.35);
+  max-width: 480px;
+  width: 100%;
   text-align: center;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 40px rgba(255, 0, 0, 0.18);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.75),
+    0 0 60px rgba(255, 0, 0, 0.20),
+    inset 0 1px 0 rgba(255, 100, 100, 0.10);
+  animation: warning-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.warning-box::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 22px;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(255, 50, 50, 0.6), rgba(180, 0, 0, 0.1), rgba(255, 50, 50, 0.6));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+  animation: shimmer-border 3s linear infinite;
+  background-size: 200% 200%;
+}
+
+@keyframes shimmer-border {
+  0%   { background-position: 0% 0%; }
+  100% { background-position: 200% 200%; }
+}
+
+@keyframes warning-pop {
+  0%   { opacity: 0; transform: scale(0.85) translateY(20px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .warning-title {
-  color: #ff3030;
-  margin-bottom: 16px;
-  font-size: 22px;
+  color: #ff3a3a;
+  margin-bottom: 18px;
+  font-size: 26px;
   font-weight: 900;
-  letter-spacing: 0.5px;
+  letter-spacing: 1px;
+  text-shadow: 0 0 24px rgba(255, 0, 0, 0.55);
 }
 
 .warning-text {
-  color: #f0e0e0;
-  margin-bottom: 22px;
-  line-height: 1.6;
-  font-size: 15px;
+  color: #f3e6e6;
+  margin-bottom: 28px;
+  line-height: 1.75;
+  font-size: 15.5px;
+  font-weight: 400;
 }
 
 .warning-age {
-  color: #ff3030;
-  font-weight: 800;
   display: block;
-  margin-top: 10px;
+  margin-top: 16px;
+  color: #ff5050;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  background: rgba(255, 0, 0, 0.08);
+  border: 1px solid rgba(255, 0, 0, 0.30);
+  border-radius: 999px;
 }
 
 .warning-accept-btn {
-  padding: 13px 36px;
-  background: linear-gradient(135deg, #ff2020, #b00000);
+  padding: 15px 44px;
+  background: linear-gradient(135deg, #ff2828, #c00000);
   color: #fff;
   border: none;
   border-radius: 999px;
   cursor: pointer;
   font-weight: 800;
-  font-size: 15px;
-  letter-spacing: 0.5px;
-  transition: transform 0.18s, box-shadow 0.18s;
-  box-shadow: 0 6px 18px rgba(255, 0, 0, 0.4);
+  font-size: 15.5px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  transition: transform 0.2s, box-shadow 0.25s, filter 0.2s;
+  box-shadow:
+    0 8px 22px rgba(255, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 .warning-accept-btn:hover {
-  transform: scale(1.04);
-  box-shadow: 0 8px 26px rgba(255, 0, 0, 0.55);
+  transform: scale(1.05) translateY(-2px);
+  box-shadow:
+    0 14px 36px rgba(255, 0, 0, 0.60),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  filter: brightness(1.08);
+}
+
+.warning-accept-btn:active {
+  transform: scale(1.0) translateY(0);
 }
 
 /* ============================================
