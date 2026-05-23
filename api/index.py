@@ -471,10 +471,10 @@ def generate_fallback_response(user_message: str) -> str:
     if any(w in msg_lower for w in ['test', 'deneme', 'calisiyor', 'çalışıyor']):
         return "Sistemler aktif. Ne sormak istersin?"
     return random.choice([
-        "Bağlantı pürüzü oldu, bir saniye sonra tekrar dene.",
-        "Anlık bir aksaklık, tekrar yaz lütfen.",
-        "Şebekede tıkanma var, mesajı tekrar gönder.",
-        "Kısa bir gecikme oldu, yeniden dene.",
+        "Sistem şu anda bakımda, biraz sonra tekrar deneyin.",
+        "x-69 şu anda bakımda, lütfen daha sonra tekrar deneyiniz.",
+        "Servis geçici olarak bakımda, kısa süre sonra tekrar dene.",
+        "Bakım çalışması var, biraz sonra tekrar deneyiniz.",
     ])
 
 
@@ -895,7 +895,7 @@ async def chat(request: Request, chat_request: ChatRequest):
     except Exception as e:
         logger.error(f"chat err: {sanitize_log(str(e), 300)}")
         return ChatResponse(
-            reply="Bir aksaklık oldu, tekrar dene.",
+            reply="x-69 şu anda bakımda, lütfen daha sonra tekrar deneyiniz.",
             transaction_id=None,
             searched=False,
         )

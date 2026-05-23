@@ -342,8 +342,8 @@ function AIChatInner() {
       clearTimeout(timeoutId);
       const isTimeout = error?.code === 'ECONNABORTED' || error?.name === 'CanceledError';
       const errMsg = isTimeout
-        ? 'Yanıt çok uzadı, tekrar dene.'
-        : 'Bağlantı sorunu, tekrar dene.';
+        ? 'Yanıt çok uzadı, x-69 şu anda yoğun. Lütfen daha sonra tekrar deneyiniz.'
+        : 'x-69 şu anda bakımda, lütfen daha sonra tekrar deneyiniz.';
       setChat((prev) => prev.slice(0, -1).concat({ text: errMsg, type: 'error' }));
     } finally {
       setLoading(false);
