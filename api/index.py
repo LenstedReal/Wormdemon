@@ -823,20 +823,18 @@ async def chat(request: Request, chat_request: ChatRequest):
             web_ctx, sources = await web_search(web_query)
             searched = bool(web_ctx)
             if web_ctx:
-                # 2. turda gerçek cevap
+                # 2. turda gerçek cevap üret
                 aug_system = system_content + (
-                    "\n\n<web_results>\nAşağıdaki güncel verileri kullanarak cevapla. "
-                    "Cevabının SONUNA '📎 Kaynaklar:' başlığı altında URL'leri listele.\n\n"
-                    f"{web_ctx}\n</web_results>"
+                    "\n\n<web_search_results>\n"
+                    "AŞAĞIDAKİ güncel veriler senin için zaten arandı ve getirildi. "
+                    "Bu sonuçları KULLANARAK kullanıcının orijinal sorusunu DOĞRUDAN ve TAM cevapla. "
+                    "ASLA 'arama yapayım', 'bekleyin', 'sonuçları bekliyorum' deme — sonuçlar şu an elinde. "
+                    "Cevabının sonuna otomatik olarak kaynak URL'leri eklenecek, sen elle eklemeyi DENEMƏ.\n\n"
+                    f"--- ARAMA SONUÇLARI ---\n{web_ctx}\n--- BİTTİ ---\n"
+                    "Şimdi yukarıdaki verileri kullanarak cevap ver."
+                    "</web_search_results>"
                 )
-                # cleaned varsa onu da bağlam olarak ekle
-                augmented_messages = list(all_messages)
-                if cleaned:
-                    augmented_messages.append(Message(
-                        role="assistant",
-                        content=f"(taslak düşünce: {cleaned[:500]})"
-                    ))
-                second_reply = await call_llm(augmented_messages, aug_system, temperature=0.3)
+                second_reply = await call_llm(all_messages, aug_system, temperature=0.3)
                 reply_text = second_reply
             else:
                 # Arama başarısız → ilk cevabı kullan
@@ -852,9 +850,13 @@ async def chat(request: Request, chat_request: ChatRequest):
         # WEB_ARAMA marker'ı yine sızdıysa temizle
         reply_text = WEB_MARKER_RE.sub('', reply_text)
 
-        # Kaynakları aynı zamanda manuel olarak ekle (model unuttuysa)
-        if sources and "📎 Kaynaklar" not in reply_text and "Kaynaklar:" not in reply_text:
-            reply_text += "\n\n📎 Kaynaklar:\n" + "\n".join(f"- {s}" for s in sources[:3])
+        # Kaynakları AI metninden ÇIKAR (frontend zaten sources alanından render edecek)
+        reply_text = re.sub(
+            r'\n*📎?\s*Kaynaklar?\s*:?\s*\n(?:\s*[-•]?\s*https?://\S+\s*\n?)+',
+            '',
+            reply_text,
+            flags=re.IGNORECASE
+        ).strip()
 
         # Karakter sınırı
         if len(reply_text) > MAX_REPLY_CHARS:
