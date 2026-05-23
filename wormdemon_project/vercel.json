@@ -1,8 +1,0 @@
-{
-  "version": 2,
-  "buildCommand": "cd frontend && yarn install --legacy-peer-deps && yarn build",
-  "devCommand": "cd frontend && yarn start",
-  "installCommand": "cd frontend && yarn install --legacy-peer-deps",
-  "framework": null,
-  "outputDirectory": "frontend/build"
-}
