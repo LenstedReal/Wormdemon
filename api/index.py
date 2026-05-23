@@ -50,9 +50,62 @@ logging.basicConfig(
 )
 logger = logging.getLogger("x69")
 
-# --- Globals ---
+# --- Globals (lazy init) ---
 client: Optional[AsyncIOMotorClient] = None
 db = None
+_db_init_lock: Optional[asyncio.Lock] = None
+_db_init_attempted: bool = False
+
+
+async def ensure_db():
+    """Lazy DB init — Vercel serverless cold start'ında lifespan
+    güvenilir çalışmadığı için ilk istek anında bağlanırız.
+    Bir kez denenir, başarısız olursa db=None bırakılır (offline mod)."""
+    global client, db, _db_init_lock, _db_init_attempted
+    if db is not None or _db_init_attempted:
+        return db
+    if _db_init_lock is None:
+        _db_init_lock = asyncio.Lock()
+    async with _db_init_lock:
+        if db is not None or _db_init_attempted:
+            return db
+        _db_init_attempted = True
+        mongo_url = os.environ.get('MONGO_URL')
+        db_name = os.environ.get('DB_NAME', 'wormdemon_db')
+        if not mongo_url:
+            logger.warning("MONGO_URL yok — DB offline mod")
+            return None
+        try:
+            client = AsyncIOMotorClient(
+                mongo_url,
+                serverSelectionTimeoutMS=3500,
+                connectTimeoutMS=3000,
+                socketTimeoutMS=8000,
+                maxPoolSize=5,
+                minPoolSize=0,
+                maxIdleTimeMS=30000,
+                retryWrites=True,
+                retryReads=True,
+            )
+            _db = client[db_name]
+            await asyncio.wait_for(_db.command('ping'), timeout=4.0)
+            db = _db
+            # Index'ler — best effort
+            try:
+                await db.chat_history.create_index([("session_id", 1), ("timestamp", -1)])
+                await db.session_counts.create_index("session_id", unique=True)
+                await db.intel.create_index("timestamp")
+            except Exception as ie:
+                logger.warning(f"Index uyarı: {ie}")
+            logger.info(f"MongoDB lazy-init OK ({db_name})")
+            return db
+        except Exception as e:
+            logger.warning(f"MongoDB lazy-init başarısız: {sanitize_log(str(e), 200)}")
+            client = None
+            db = None
+            return None
+
+
 def _real_ip(request: Request) -> str:
     fwd = request.headers.get("x-forwarded-for") or request.headers.get("x-real-ip")
     if fwd:
@@ -241,53 +294,21 @@ BİLMEDİĞİN ŞEYLER:
 
 
 # ============================================
-# Lifespan (MongoDB)
+# Lifespan (legacy — Vercel'de çalışmayabilir, lazy init kullanıyoruz)
 # ============================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global client, db
-    mongo_url = os.environ.get('MONGO_URL')
-    db_name = os.environ.get('DB_NAME', 'wormdemon_db')
-
-    # ENV validation
-    missing = [k for k in ['MONGO_URL'] if not os.environ.get(k)]
-    if missing:
-        logger.warning(f"Eksik ENV: {missing} — DB devre dışı")
-
-    for k in ['GROQ_API_KEY', 'GEMINI_API_KEY', 'SERPAPI_KEY']:
+    # Sadece env validation. DB bağlantısı `ensure_db()` ile lazy yapılır.
+    for k in ['GROQ_API_KEY', 'GEMINI_API_KEY', 'SERPAPI_KEY', 'MONGO_URL']:
         if not os.environ.get(k):
             logger.warning(f"ENV uyarı: {k} eksik")
-
-    if mongo_url:
-        try:
-            client = AsyncIOMotorClient(
-                mongo_url,
-                serverSelectionTimeoutMS=15000,
-                connectTimeoutMS=10000,
-                socketTimeoutMS=20000,
-                maxPoolSize=10,
-                minPoolSize=1,
-                maxIdleTimeMS=60000,
-                retryWrites=True,
-                retryReads=True,
-            )
-            db = client[db_name]
-            await db.command('ping')
-            # Indexes
-            try:
-                await db.chat_history.create_index([("session_id", 1), ("timestamp", -1)])
-                await db.session_counts.create_index("session_id", unique=True)
-                await db.intel.create_index("timestamp")
-            except Exception as e:
-                logger.warning(f"Index uyarı: {e}")
-            logger.info(f"MongoDB OK ({db_name})")
-        except Exception as e:
-            logger.warning(f"MongoDB başarısız: {e}")
-            client = None
-            db = None
     yield
+    global client
     if client:
-        client.close()
+        try:
+            client.close()
+        except Exception:
+            pass
 
 
 # ============================================
@@ -457,6 +478,14 @@ FALLBACK_VARIANTS_GREETING = [
 ]
 
 
+FALLBACK_VARIANTS_BUSY = [
+    "AI servisleri şu an yoğun (ücretsiz kota dolmuş olabilir). Birazdan tekrar dene.",
+    "Şu an LLM tarafında trafik sıkışık, 1-2 dakika sonra tekrar yaz.",
+    "Üst üste çok istek geldi, biraz nefes alalım — sonra tekrar dene.",
+    "Yoğunluk var şu an, kısa bir mola — birazdan yeniden dene.",
+]
+
+
 def generate_fallback_response(user_message: str) -> str:
     msg_lower = (user_message or "").lower()
     if any(w in msg_lower for w in ['selam', 'merhaba', 'hey', 'hi', 'naber', 'sa', 'as']):
@@ -470,12 +499,8 @@ def generate_fallback_response(user_message: str) -> str:
         return random.choice(variants)
     if any(w in msg_lower for w in ['test', 'deneme', 'calisiyor', 'çalışıyor']):
         return "Sistemler aktif. Ne sormak istersin?"
-    return random.choice([
-        "Sistem şu anda bakımda, biraz sonra tekrar deneyin.",
-        "x-69 şu anda bakımda, lütfen daha sonra tekrar deneyiniz.",
-        "Servis geçici olarak bakımda, kısa süre sonra tekrar dene.",
-        "Bakım çalışması var, biraz sonra tekrar deneyiniz.",
-    ])
+    # Genel fallback — LLM kotaları dolu / servis ulaşılmaz
+    return random.choice(FALLBACK_VARIANTS_BUSY)
 
 
 def should_search_web_heuristic(user_message: str) -> bool:
@@ -565,7 +590,7 @@ async def call_llm(messages: List[Message], system_content: str, temperature: fl
     if groq_key:
         for attempt in range(2):
             try:
-                async with httpx.AsyncClient(timeout=30.0) as hc:
+                async with httpx.AsyncClient(timeout=22.0) as hc:
                     r = await hc.post(
                         "https://api.groq.com/openai/v1/chat/completions",
                         headers={
@@ -582,19 +607,25 @@ async def call_llm(messages: List[Message], system_content: str, temperature: fl
                     )
                     if r.status_code == 200:
                         data = r.json()
-                        logger.info(f"LLM: Groq OK (attempt {attempt+1})")
-                        return data["choices"][0]["message"]["content"]
+                        content = (data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+                        if content:
+                            logger.info(f"LLM: Groq OK (attempt {attempt+1}, len={len(content)})")
+                            return content
+                        # Boş cevap — bir sonraki denemeye / fallback'e geç
+                        logger.warning(f"Groq boş cevap attempt {attempt+1}")
+                        await asyncio.sleep(0.5)
+                        continue
                     elif r.status_code == 429:
                         # Rate limit — kısa bekle, tekrar dene
                         logger.warning(f"Groq 429, retry {attempt+1}")
-                        await asyncio.sleep(1.5)
+                        await asyncio.sleep(1.2)
                         continue
                     else:
-                        logger.warning(f"Groq {r.status_code}: {sanitize_log(r.text, 200)}")
+                        logger.warning(f"Groq HTTP {r.status_code}: {sanitize_log(r.text, 200)}")
                         break
             except (httpx.TimeoutException, httpx.ConnectError) as e:
                 logger.warning(f"Groq net err attempt {attempt+1}: {sanitize_log(str(e), 120)}")
-                await asyncio.sleep(0.8)
+                await asyncio.sleep(0.6)
                 continue
             except Exception as e:
                 logger.warning(f"Groq fail: {sanitize_log(str(e), 200)}")
@@ -626,7 +657,7 @@ async def call_llm(messages: List[Message], system_content: str, temperature: fl
                     ]
                 ],
             }
-            async with httpx.AsyncClient(timeout=30.0) as hc:
+            async with httpx.AsyncClient(timeout=22.0) as hc:
                 r = await hc.post(
                     f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gem_key}",
                     headers={"Content-Type": "application/json"},
@@ -634,11 +665,16 @@ async def call_llm(messages: List[Message], system_content: str, temperature: fl
                 )
                 if r.status_code == 200:
                     data = r.json()
-                    text = data["candidates"][0]["content"]["parts"][0]["text"]
-                    logger.info("LLM: Gemini OK")
-                    return text
+                    try:
+                        text = (data["candidates"][0]["content"]["parts"][0].get("text") or "").strip()
+                    except (KeyError, IndexError, TypeError):
+                        text = ""
+                    if text:
+                        logger.info(f"LLM: Gemini OK (len={len(text)})")
+                        return text
+                    logger.warning(f"Gemini boş cevap: {sanitize_log(str(data)[:300], 300)}")
                 else:
-                    logger.error(f"Gemini {r.status_code}: {sanitize_log(r.text, 200)}")
+                    logger.error(f"Gemini HTTP {r.status_code}: {sanitize_log(r.text, 200)}")
         except Exception as e:
             logger.error(f"Gemini fail: {sanitize_log(str(e), 200)}")
 
@@ -655,10 +691,11 @@ async def call_llm(messages: List[Message], system_content: str, temperature: fl
 # DB helpers
 # ============================================
 async def increment_session_count(session_id: str) -> int:
-    if db is None or not session_id:
+    _db = await ensure_db()
+    if _db is None or not session_id:
         return 0
     try:
-        result = await db.session_counts.find_one_and_update(
+        result = await _db.session_counts.find_one_and_update(
             {"session_id": session_id},
             {
                 "$inc": {"count": 1},
@@ -675,10 +712,11 @@ async def increment_session_count(session_id: str) -> int:
 
 
 async def get_session_history(session_id: str, limit: int = 10) -> List[Message]:
-    if db is None or not session_id:
+    _db = await ensure_db()
+    if _db is None or not session_id:
         return []
     try:
-        cursor = db.chat_history.find(
+        cursor = _db.chat_history.find(
             {"session_id": session_id}
         ).sort("timestamp", -1).limit(limit)
         docs = await cursor.to_list(limit)
@@ -696,7 +734,8 @@ async def get_session_history(session_id: str, limit: int = 10) -> List[Message]
 
 
 async def save_chat(messages: List[Message], response: str, session_id: Optional[str], sources: List[str]) -> Optional[str]:
-    if db is None:
+    _db = await ensure_db()
+    if _db is None:
         return None
     try:
         tid = str(uuid.uuid4())
@@ -709,7 +748,7 @@ async def save_chat(messages: List[Message], response: str, session_id: Optional
         }
         if session_id:
             doc["session_id"] = session_id
-        await db.chat_history.insert_one(doc)
+        await _db.chat_history.insert_one(doc)
         return tid
     except Exception as e:
         logger.error(f"Save chat: {sanitize_log(str(e), 200)}")
@@ -726,14 +765,67 @@ async def root():
 
 @api_router.get("/health")
 async def health():
+    _db = await ensure_db()
     return {
         "status": "ok",
-        "db": "connected" if db is not None else "disconnected",
+        "db": "connected" if _db is not None else "disconnected",
         "groq": "configured" if os.environ.get('GROQ_API_KEY') else "missing",
         "gemini": "configured" if os.environ.get('GEMINI_API_KEY') else "missing",
         "serp": "configured" if os.environ.get('SERPAPI_KEY') else "missing",
         "independent": True,
-        "version": "2.0",
+        "version": "2.1",
+    }
+
+
+@api_router.get("/diagnostics")
+async def diagnostics():
+    """Vercel/lokal teşhis — hangi ENV var eksik, DB durumu, model erişimi."""
+    _db = await ensure_db()
+    groq_key = os.environ.get('GROQ_API_KEY')
+    gem_key = os.environ.get('GEMINI_API_KEY')
+    serp_key = os.environ.get('SERPAPI_KEY')
+
+    # Groq mini ping
+    groq_status = "missing_key"
+    if groq_key:
+        try:
+            async with httpx.AsyncClient(timeout=6.0) as hc:
+                rg = await hc.get(
+                    "https://api.groq.com/openai/v1/models",
+                    headers={"Authorization": f"Bearer {groq_key}"},
+                )
+                groq_status = "ok" if rg.status_code == 200 else f"http_{rg.status_code}"
+        except Exception as e:
+            groq_status = f"err:{type(e).__name__}"
+
+    # Gemini mini ping
+    gem_status = "missing_key"
+    if gem_key:
+        try:
+            async with httpx.AsyncClient(timeout=6.0) as hc:
+                rge = await hc.get(
+                    f"https://generativelanguage.googleapis.com/v1beta/models?key={gem_key}"
+                )
+                gem_status = "ok" if rge.status_code == 200 else f"http_{rge.status_code}"
+        except Exception as e:
+            gem_status = f"err:{type(e).__name__}"
+
+    return {
+        "env": {
+            "MONGO_URL": "set" if os.environ.get('MONGO_URL') else "MISSING",
+            "DB_NAME": os.environ.get('DB_NAME', 'wormdemon_db'),
+            "GROQ_API_KEY": "set" if groq_key else "MISSING",
+            "GEMINI_API_KEY": "set" if gem_key else "MISSING",
+            "SERPAPI_KEY": "set" if serp_key else "MISSING",
+            "FREE_MESSAGE_LIMIT": os.environ.get('FREE_MESSAGE_LIMIT', '10'),
+        },
+        "services": {
+            "mongodb": "connected" if _db is not None else "disconnected",
+            "groq": groq_status,
+            "gemini": gem_status,
+            "serpapi": "configured" if serp_key else "missing",
+        },
+        "platform": "vercel" if os.environ.get('VERCEL') else "local",
     }
 
 
@@ -769,9 +861,10 @@ async def get_ip_info(request: Request):
 
 @api_router.post("/intel/collect")
 async def collect_intel(data: IntelData):
-    if db is not None:
+    _db = await ensure_db()
+    if _db is not None:
         try:
-            await db.intel.insert_one({
+            await _db.intel.insert_one({
                 "ip": data.ip,
                 "location": data.location,
                 "gpu": data.gpu,
@@ -791,10 +884,11 @@ async def collect_intel(data: IntelData):
 @api_router.post("/chat", response_model=ChatResponse)
 @limiter.limit("60/minute")
 async def chat(request: Request, chat_request: ChatRequest):
+    chat_start = datetime.now(timezone.utc)
     try:
         session_id = chat_request.session_id or f"anon_{uuid.uuid4().hex[:12]}"
 
-        # Session count (atomic MongoDB ile)
+        # Session count (atomic MongoDB ile) — DB yoksa 0 döner, limit uygulanmaz
         count = await increment_session_count(session_id)
         if count > FREE_MESSAGE_LIMIT and FREE_MESSAGE_LIMIT > 0:
             return ChatResponse(
@@ -820,7 +914,6 @@ async def chat(request: Request, chat_request: ChatRequest):
         # Geçmişi DB'den de al + frontend'den geleni birleştir
         db_history = await get_session_history(session_id, limit=5)
         all_messages = db_history + chat_request.messages
-        # Duplicate son user kaldır (frontend zaten o user mesajını yolladı)
         all_messages = all_messages[-MAX_HISTORY_MSGS:]
 
         # İlk LLM çağrısı
@@ -835,12 +928,22 @@ async def chat(request: Request, chat_request: ChatRequest):
         if not web_query and should_search_web_heuristic(last_user):
             web_query = last_user[:200]
 
-        if web_query:
-            logger.info(f"WEB_SEARCH: {sanitize_log(web_query, 80)}")
-            web_ctx, sources = await web_search(web_query)
+        # Zaman bütçesi: Vercel 30s sınırı için 2. LLM call sadece <15s kaldıysa
+        elapsed = (datetime.now(timezone.utc) - chat_start).total_seconds()
+        time_left = 28 - elapsed  # 2s güvenlik marjı
+
+        if web_query and time_left > 8:
+            logger.info(f"WEB_SEARCH: {sanitize_log(web_query, 80)} (time_left={time_left:.1f}s)")
+            try:
+                web_ctx, sources = await asyncio.wait_for(web_search(web_query), timeout=min(8.0, time_left - 4))
+            except asyncio.TimeoutError:
+                logger.warning("web_search timeout")
+                web_ctx, sources = "", []
             searched = bool(web_ctx)
-            if web_ctx:
-                # 2. turda gerçek cevap üret
+            elapsed = (datetime.now(timezone.utc) - chat_start).total_seconds()
+            time_left = 28 - elapsed
+
+            if web_ctx and time_left > 5:
                 aug_system = system_content + (
                     "\n\n<web_search_results>\n"
                     "AŞAĞIDAKİ güncel veriler senin için zaten arandı ve getirildi. "
@@ -852,10 +955,13 @@ async def chat(request: Request, chat_request: ChatRequest):
                     "</web_search_results>"
                 )
                 second_reply = await call_llm(all_messages, aug_system, temperature=0.3)
-                reply_text = second_reply
+                reply_text = second_reply or cleaned or first_reply
             else:
-                # Arama başarısız → ilk cevabı kullan
                 reply_text = cleaned or first_reply
+        elif web_query:
+            # Zaman yok — marker'ı temizle, ilk cevabı kullan
+            logger.warning(f"web_search atlandı (time_left={time_left:.1f}s)")
+            reply_text = cleaned or first_reply
         else:
             reply_text = cleaned or first_reply
 
@@ -879,12 +985,16 @@ async def chat(request: Request, chat_request: ChatRequest):
         if len(reply_text) > MAX_REPLY_CHARS:
             reply_text = reply_text[:MAX_REPLY_CHARS].rsplit('\n', 1)[0] + "\n…"
 
-        reply_text = reply_text.strip() or generate_fallback_response(last_user)
+        # Boş cevap koruması — sıfır karakter dönerse fallback
+        if not reply_text.strip():
+            logger.warning(f"Boş reply [{session_id[:12]}] — fallback kullanılıyor")
+            reply_text = generate_fallback_response(last_user)
 
-        # DB'ye kaydet
+        # DB'ye kaydet (best-effort)
         tid = await save_chat(chat_request.messages, reply_text, session_id, sources)
 
-        logger.info(f"REPLY[{session_id[:12]}] len={len(reply_text)} src={len(sources)}")
+        total_elapsed = (datetime.now(timezone.utc) - chat_start).total_seconds()
+        logger.info(f"REPLY[{session_id[:12]}] len={len(reply_text)} src={len(sources)} took={total_elapsed:.1f}s")
 
         return ChatResponse(
             reply=reply_text,
@@ -893,9 +1003,17 @@ async def chat(request: Request, chat_request: ChatRequest):
             searched=searched,
         )
     except Exception as e:
-        logger.error(f"chat err: {sanitize_log(str(e), 300)}")
+        logger.error(f"chat err: {type(e).__name__}: {sanitize_log(str(e), 300)}")
+        # Son user mesajını yakalamaya çalış — fallback daha doğal olsun
+        last_user_fb = ""
+        try:
+            for m in chat_request.messages:
+                if m.role == "user":
+                    last_user_fb = m.content
+        except Exception:
+            pass
         return ChatResponse(
-            reply="x-69 şu anda bakımda, lütfen daha sonra tekrar deneyiniz.",
+            reply=generate_fallback_response(last_user_fb),
             transaction_id=None,
             searched=False,
         )
@@ -903,18 +1021,20 @@ async def chat(request: Request, chat_request: ChatRequest):
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status(input: StatusCheckCreate):
-    if db is None:
+    _db = await ensure_db()
+    if _db is None:
         raise HTTPException(status_code=503, detail="DB unavailable")
     obj = StatusCheck(**input.model_dump())
-    await db.status_checks.insert_one(obj.model_dump(mode='json'))
+    await _db.status_checks.insert_one(obj.model_dump(mode='json'))
     return obj
 
 
 @api_router.get("/status", response_model=List[StatusCheck])
 async def get_status():
-    if db is None:
+    _db = await ensure_db()
+    if _db is None:
         raise HTTPException(status_code=503, detail="DB unavailable")
-    checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
+    checks = await _db.status_checks.find({}, {"_id": 0}).to_list(1000)
     return checks
 
 
