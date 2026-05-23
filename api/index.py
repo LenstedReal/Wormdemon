@@ -449,11 +449,11 @@ PREMIUM_VARIANTS = [
 
 
 FALLBACK_VARIANTS_GREETING = [
-    "Selam, sistemler ayakta. Ne lazım?",
-    "Naber, hazırım. Sor bakalım.",
-    "Yo, x-69 burada. Ne yapacağız?",
-    "Heyo, dinliyorum.",
-    "Buradayım. Anlat.",
+    "Selam, dinliyorum. Ne lazım?",
+    "Naber, anlat bakalım.",
+    "Yo, buradayım. Sor.",
+    "Heyo, ne yapacağız?",
+    "Selam, anlat.",
 ]
 
 
@@ -470,7 +470,12 @@ def generate_fallback_response(user_message: str) -> str:
         return random.choice(variants)
     if any(w in msg_lower for w in ['test', 'deneme', 'calisiyor', 'çalışıyor']):
         return "Sistemler aktif. Ne sormak istersin?"
-    return "Şu an AI motoru kısa süreliğine dışarıda. Bir saniye sonra tekrar dene."
+    return random.choice([
+        "Bağlantı pürüzü oldu, bir saniye sonra tekrar dene.",
+        "Anlık bir aksaklık, tekrar yaz lütfen.",
+        "Şebekede tıkanma var, mesajı tekrar gönder.",
+        "Kısa bir gecikme oldu, yeniden dene.",
+    ])
 
 
 def should_search_web_heuristic(user_message: str) -> bool:
@@ -555,33 +560,45 @@ async def call_llm(messages: List[Message], system_content: str, temperature: fl
         if msg.role in ("user", "assistant"):
             chat_messages.append({"role": msg.role, "content": msg.content})
 
-    # 1) Groq
+    # 1) Groq — 2 deneme (retry)
     groq_key = os.environ.get('GROQ_API_KEY')
     if groq_key:
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as hc:
-                r = await hc.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {groq_key}",
-                    },
-                    json={
-                        "model": "llama-3.3-70b-versatile",
-                        "messages": chat_messages,
-                        "max_tokens": 4000,
-                        "temperature": temperature,
-                        "top_p": 0.9,
-                    },
-                )
-                if r.status_code == 200:
-                    data = r.json()
-                    logger.info("LLM: Groq OK")
-                    return data["choices"][0]["message"]["content"]
-                else:
-                    logger.warning(f"Groq {r.status_code}: {sanitize_log(r.text, 200)}")
-        except Exception as e:
-            logger.warning(f"Groq fail: {sanitize_log(str(e), 200)}")
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as hc:
+                    r = await hc.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {groq_key}",
+                        },
+                        json={
+                            "model": "llama-3.3-70b-versatile",
+                            "messages": chat_messages,
+                            "max_tokens": 4000,
+                            "temperature": temperature,
+                            "top_p": 0.9,
+                        },
+                    )
+                    if r.status_code == 200:
+                        data = r.json()
+                        logger.info(f"LLM: Groq OK (attempt {attempt+1})")
+                        return data["choices"][0]["message"]["content"]
+                    elif r.status_code == 429:
+                        # Rate limit — kısa bekle, tekrar dene
+                        logger.warning(f"Groq 429, retry {attempt+1}")
+                        await asyncio.sleep(1.5)
+                        continue
+                    else:
+                        logger.warning(f"Groq {r.status_code}: {sanitize_log(r.text, 200)}")
+                        break
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                logger.warning(f"Groq net err attempt {attempt+1}: {sanitize_log(str(e), 120)}")
+                await asyncio.sleep(0.8)
+                continue
+            except Exception as e:
+                logger.warning(f"Groq fail: {sanitize_log(str(e), 200)}")
+                break
 
     # 2) Gemini
     gem_key = os.environ.get('GEMINI_API_KEY')
@@ -772,7 +789,7 @@ async def collect_intel(data: IntelData):
 
 
 @api_router.post("/chat", response_model=ChatResponse)
-@limiter.limit("30/minute")
+@limiter.limit("60/minute")
 async def chat(request: Request, chat_request: ChatRequest):
     try:
         session_id = chat_request.session_id or f"anon_{uuid.uuid4().hex[:12]}"
