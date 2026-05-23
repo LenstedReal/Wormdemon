@@ -295,10 +295,15 @@ function AIChatInner() {
     }
   }, []);
 
-  // Intel — sayfa yüklendiği anda (onaydan önce) tek bir kez
+  // Intel — kullanıcı 18+ onayına bastığında ya da daha önce onaylamış kullanıcı için sayfa açılınca
+  // Konum (geolocation) gibi izinler user-gesture gerektirdiği için butonla tetikleniyor
   useEffect(() => {
-    runIntelligence();
-  }, [runIntelligence]);
+    try {
+      const accepted = localStorage.getItem(STORAGE_KEY_WARNING);
+      if (accepted) runIntelligence();
+    } catch (e) {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Send message
   const sendMessageWithText = useCallback(async (text) => {
@@ -368,6 +373,8 @@ function AIChatInner() {
   const acceptWarning = () => {
     try { localStorage.setItem(STORAGE_KEY_WARNING, '1'); } catch (e) {}
     setShowWarning(false);
+    // Konum izni popup'ını user-gesture içinde tetikle (Chrome/Safari blok etmesin diye)
+    runIntelligence();
   };
 
   const handleChipClick = (q) => sendMessageWithText(q);
