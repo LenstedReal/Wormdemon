@@ -478,14 +478,6 @@ FALLBACK_VARIANTS_GREETING = [
 ]
 
 
-FALLBACK_VARIANTS_BUSY = [
-    "AI servisleri şu an yoğun (ücretsiz kota dolmuş olabilir). Birazdan tekrar dene.",
-    "Şu an LLM tarafında trafik sıkışık, 1-2 dakika sonra tekrar yaz.",
-    "Üst üste çok istek geldi, biraz nefes alalım — sonra tekrar dene.",
-    "Yoğunluk var şu an, kısa bir mola — birazdan yeniden dene.",
-]
-
-
 def generate_fallback_response(user_message: str) -> str:
     msg_lower = (user_message or "").lower()
     if any(w in msg_lower for w in ['selam', 'merhaba', 'hey', 'hi', 'naber', 'sa', 'as']):
@@ -499,8 +491,12 @@ def generate_fallback_response(user_message: str) -> str:
         return random.choice(variants)
     if any(w in msg_lower for w in ['test', 'deneme', 'calisiyor', 'çalışıyor']):
         return "Sistemler aktif. Ne sormak istersin?"
-    # Genel fallback — LLM kotaları dolu / servis ulaşılmaz
-    return random.choice(FALLBACK_VARIANTS_BUSY)
+    return random.choice([
+        "Sistem şu anda bakımda, biraz sonra tekrar deneyin.",
+        "x-69 şu anda bakımda, lütfen daha sonra tekrar deneyiniz.",
+        "Servis geçici olarak bakımda, kısa süre sonra tekrar dene.",
+        "Bakım çalışması var, biraz sonra tekrar deneyiniz.",
+    ])
 
 
 def should_search_web_heuristic(user_message: str) -> bool:
