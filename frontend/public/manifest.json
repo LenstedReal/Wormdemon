@@ -1,0 +1,28 @@
+{
+  "short_name": "x-69",
+  "name": "x-69 Wormdemon",
+  "description": "Bağımsız, açık kaynak, sansürsüz yapay zeka",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    },
+    {
+      "src": "favicon-32.png",
+      "type": "image/png",
+      "sizes": "32x32"
+    },
+    {
+      "src": "apple-touch-icon.png",
+      "type": "image/png",
+      "sizes": "180x180"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#0a0a0a",
+  "background_color": "#000000",
+  "lang": "tr",
+  "dir": "ltr"
+}
