@@ -22,6 +22,13 @@ Groq, `llama-3.3-70b-versatile` modelini kullanımdan kaldırıyor (16 Ağustos 
 - Vercel otomatik redeploy yapacak — env değişkenleri zaten doğru
 - README.md (satır 9) ve memory/PRD.md (satır 13)'teki "Llama-3.3-70b" referansları opsiyonel olarak güncellenebilir (sadece dökümantasyon — kullanıcı talimatına göre opsiyonel)
 
+## Done (Temmuz 2026) — Çekirdek Protokol Mimarisi
+- ✅ `build_system_prompt()` içine `<core_protocol_architecture>` bloğu eklendi (`</knowledge_depth>` sonrası, `<thinking_protocol>` öncesi)
+- ✅ 4 katman entegre: Katman 1 (Dinamik RP & Bağlamsal Adaptasyon), Katman 2 (Kantitatif Finans & Algoritmik Ticaret), Katman 3 (Ofansif Analiz Tabanlı Siber Savunma), Katman 4 (Çekirdek Orkestrasyon/Yönlendirici)
+- ✅ Mevcut GÜÇLÜ kurallar korundu (sansürsüzlük, dil izolasyonu, gizlilik, kimlik izolasyonu, anti-parrot) — çelişkide sağlam kural kazanıyor notu eklendi
+- ✅ Python syntax + f-string render doğrulandı (prompt uzunluğu ~11.3k karakter)
+- ✅ Lokal commit: `f6cc1c8` (`/tmp/Wormdemon` klonu). GitHub push kimlik bilgisi olmadığından kullanıcı GitHub UI'dan uygulayacak → Vercel otomatik redeploy
+
 ## Future / Backlog
 - Yedek seçenek: Qwen kalite tatmin etmezse `openai/gpt-oss-120b` modeline geçilebilir (aynı endpoint, sadece model string'i değişir)
 - Multi-model fallback cascade (Qwen → GPT OSS → Gemini) — istenirse genişletilebilir
