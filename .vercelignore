@@ -1,0 +1,27 @@
+# Sadece api/index.py serverless olarak deploy edilecek
+# backend/ klasörü sadece lokal geliştirme içindir
+backend/
+
+# Geliştirme dosyaları
+.env
+.env.*
+!.env.example
+
+# Test ve memory
+tests/
+test_reports/
+test_result.md
+memory/
+
+# Çöp
+.DS_Store
+.gitconfig
+__pycache__/
+*.pyc
+.pytest_cache/
+.cache/
+node_modules/
+
+# IDE
+.vscode/
+.idea/
